@@ -1,4 +1,5 @@
 import atexit
+import random
 
 import flask
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -16,6 +17,8 @@ class status(Enum):
 
 city = 'Krakow,PL'
 ApiKey = '4526d487f12ef78b82b7a7d113faea64'
+startTemperature = random.randrange(17, 25)
+startHumidity = random.randrange(20, 80)
 
 
 def getWeatherOutside():
@@ -28,12 +31,32 @@ def getWeatherOutside():
 
 
 def job_function():
-    # update_data_perdioclay
+    # function will update temperature inside
     print(getWeatherOutside())
+    print(state)
+    actualTemperature = state['ambient_temp']
+    actualHumidity = state['humidity']
+    targetTemperature = state['target_temp']
+    if actualTemperature < targetTemperature:
+        state['ambient_temp'] = actualTemperature + 0.1
+        return
+    elif actualTemperature > targetTemperature:
+        state['ambient_temp'] = actualTemperature - 0.1
+        return
+    else:
+        return
+
+
+def changeTemperature():
+    # function will change temperature inside basing on the temperature outside
+    actualTemperature = state['ambient_temp']
+    state['ambient_temp'] = actualTemperature - ((actualTemperature - getWeatherOutside()[0]) / 100)
+    return
 
 
 cron = BackgroundScheduler(daemon=True)
 cron.add_job(job_function, 'interval', minutes=0.1)
+cron.add_job(changeTemperature, 'interval', minutes=0.15)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
@@ -45,8 +68,8 @@ state = {'hvac_mode': status.heat,
          'target_temp': 21,
          'target_temp_low': 18,
          'target_temp_high': 22,
-         'ambient_temp': 20,
-         'humidity': 60}
+         'ambient_temp': startTemperature,
+         'humidity': startHumidity}
 
 
 @app.route('/devices/thermostats/<int:id>/target_temperature_c', methods=['GET'])
@@ -128,4 +151,4 @@ def get_time_to_target():
     return 20
 
 
-app.run()
+app.run(use_reloader=False)
