@@ -26,13 +26,6 @@ def getStatus(num: int):
         return status.eco
 
 
-city = 'Krakow,PL'
-ApiKey = '4526d487f12ef78b82b7a7d113faea64'
-startTemperature = random.randrange(17, 25)
-startHumidity = random.randrange(20, 80)
-startStatus = random.randint(0, 3)
-
-
 def getWeatherOutside():
     owm = OWM(ApiKey)
     observation = owm.weather_manager().weather_at_place(city)
@@ -42,10 +35,18 @@ def getWeatherOutside():
     return temperature, humidity
 
 
+city = 'Krakow,PL'
+ApiKey = '4526d487f12ef78b82b7a7d113faea64'
+startTemperature = random.randrange(17, 25)
+startHumidity = random.randrange(20, 80)
+startStatus = random.randint(0, 3)
+weather = getWeatherOutside()
+
+
 def job_function():
     # function will update temperature inside
     print(state)
-    weatherOutside = getWeatherOutside()
+    weatherOutside = weather
     actualTemperature = state['ambient_temp']
     actualHumidity = state['humidity']
     targetTemperature = state['target_temp']
@@ -81,13 +82,19 @@ def job_function():
 def changeTemperature():
     # function will change temperature inside basing on the temperature outside
     actualTemperature = state['ambient_temp']
-    state['ambient_temp'] = actualTemperature - ((actualTemperature - getWeatherOutside()[0]) / 200)
+    state['ambient_temp'] = actualTemperature - ((actualTemperature - weather[0]) / 200)
 
 
 def changeHumidity():
     actualHumidity = state['humidity']
-    outsideHumidity = getWeatherOutside()[1]
-    state['humidity'] = actualHumidity + (outsideHumidity - actualHumidity) / 25
+    outsideHumidity = weather[1]
+    state['humidity'] = (actualHumidity + (((outsideHumidity - actualHumidity) / 25) * random.uniform(-1, 1)))
+
+
+def updateWeather():
+    global weather
+    weather = getWeatherOutside()
+    print(weather)
 
 
 cron = BackgroundScheduler(daemon=True)
@@ -95,6 +102,7 @@ cron = BackgroundScheduler(daemon=True)
 cron.add_job(job_function, 'interval', minutes=0.01)
 cron.add_job(changeTemperature, 'interval', minutes=0.03)
 cron.add_job(changeHumidity, 'interval', minutes=0.08)
+cron.add_job(updateWeather, 'interval', minutes=0.05)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
@@ -102,7 +110,7 @@ atexit.register(lambda: cron.shutdown(wait=False))
 
 app = flask.Flask(__name__)
 app.config["DEBUG"] = True
-state = {'hvac_mode': getStatus(0),
+state = {'hvac_mode': getStatus(startStatus),
          'target_temp': 21,
          'target_temp_low': 18,
          'target_temp_high': 22,
