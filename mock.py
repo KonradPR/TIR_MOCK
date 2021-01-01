@@ -15,10 +15,22 @@ class status(Enum):
     eco = 3
 
 
+def getStatus(num: int):
+    if num == 0:
+        return status.heat
+    elif num == 1:
+        return status.cool
+    elif num == 2:
+        return status.hc
+    elif num == 3:
+        return status.eco
+
+
 city = 'Krakow,PL'
 ApiKey = '4526d487f12ef78b82b7a7d113faea64'
 startTemperature = random.randrange(17, 25)
 startHumidity = random.randrange(20, 80)
+startStatus = random.randint(0, 3)
 
 
 def getWeatherOutside():
@@ -32,31 +44,57 @@ def getWeatherOutside():
 
 def job_function():
     # function will update temperature inside
-    print(getWeatherOutside())
     print(state)
+    weatherOutside = getWeatherOutside()
     actualTemperature = state['ambient_temp']
     actualHumidity = state['humidity']
     targetTemperature = state['target_temp']
-    if actualTemperature < targetTemperature:
-        state['ambient_temp'] = actualTemperature + 0.1
-        return
-    elif actualTemperature > targetTemperature:
-        state['ambient_temp'] = actualTemperature - 0.1
-        return
-    else:
-        return
+    actualStatus = state['hvac_mode']
+    temperatureDifference = abs(weatherOutside[0] - actualTemperature)
+    humidityDifference = abs(weatherOutside[1] - actualHumidity)
+    # print(actualStatus.name)
+    if actualStatus == status.heat:
+        if abs(actualTemperature - targetTemperature) < 0.5:
+            if actualTemperature - targetTemperature < 0:
+                state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 2 + 0.1) * (
+                        temperatureDifference / 50) * (humidityDifference / 30)
+            else:
+                state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 2 - 0.1) * (
+                        temperatureDifference / 50) * (humidityDifference / 30)
+        elif actualTemperature > targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
+                    temperatureDifference / 50) * (humidityDifference / 30)
+        elif actualTemperature < targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
+                    temperatureDifference / 50) * (humidityDifference / 30)
+
+    if actualStatus == status.cool:
+        state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 20)
+
+    if actualStatus == status.hc:
+        state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 15)
+
+    if actualStatus == status.eco:
+        state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 17)
 
 
 def changeTemperature():
     # function will change temperature inside basing on the temperature outside
     actualTemperature = state['ambient_temp']
-    state['ambient_temp'] = actualTemperature - ((actualTemperature - getWeatherOutside()[0]) / 100)
-    return
+    state['ambient_temp'] = actualTemperature - ((actualTemperature - getWeatherOutside()[0]) / 200)
+
+
+def changeHumidity():
+    actualHumidity = state['humidity']
+    outsideHumidity = getWeatherOutside()[1]
+    state['humidity'] = actualHumidity + (outsideHumidity - actualHumidity) / 25
 
 
 cron = BackgroundScheduler(daemon=True)
-cron.add_job(job_function, 'interval', minutes=0.1)
-cron.add_job(changeTemperature, 'interval', minutes=0.15)
+# for development purposes times are very short
+cron.add_job(job_function, 'interval', minutes=0.01)
+cron.add_job(changeTemperature, 'interval', minutes=0.03)
+cron.add_job(changeHumidity, 'interval', minutes=0.08)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
@@ -64,7 +102,7 @@ atexit.register(lambda: cron.shutdown(wait=False))
 
 app = flask.Flask(__name__)
 app.config["DEBUG"] = True
-state = {'hvac_mode': status.heat,
+state = {'hvac_mode': getStatus(0),
          'target_temp': 21,
          'target_temp_low': 18,
          'target_temp_high': 22,
