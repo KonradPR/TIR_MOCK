@@ -53,24 +53,36 @@ def job_function():
     actualStatus = state['hvac_mode']
     temperatureDifference = abs(weatherOutside[0] - actualTemperature)
     humidityDifference = abs(weatherOutside[1] - actualHumidity)
-    # print(actualStatus.name)
+    rand = random.uniform(0, 2.5)
     if actualStatus == status.heat:
         if abs(actualTemperature - targetTemperature) < 0.5:
             if actualTemperature - targetTemperature < 0:
                 state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 2 + 0.1) * (
-                        temperatureDifference / 50) * (humidityDifference / 30)
+                        temperatureDifference / 50) * (humidityDifference / 30) * rand
             else:
                 state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 2 - 0.1) * (
-                        temperatureDifference / 50) * (humidityDifference / 30)
+                        temperatureDifference / 50) * (humidityDifference / 30) * rand
         elif actualTemperature > targetTemperature:
             state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
-                    temperatureDifference / 50) * (humidityDifference / 30)
+                    temperatureDifference / 50) * (humidityDifference / 30) * rand
         elif actualTemperature < targetTemperature:
             state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
-                    temperatureDifference / 50) * (humidityDifference / 30)
+                    temperatureDifference / 50) * (humidityDifference / 30) * rand
 
     if actualStatus == status.cool:
-        state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 20)
+        if abs(actualTemperature - targetTemperature) < 0.5:
+            if actualTemperature - targetTemperature < 0:
+                state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 2 + 0.06) * (
+                        temperatureDifference / 50) * (humidityDifference / 30) * rand
+            else:
+                state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 2 - 0.2) * (
+                        temperatureDifference / 50) * (humidityDifference / 30) * rand
+        elif actualTemperature > targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
+                    temperatureDifference / 50) * (humidityDifference / 40) * rand
+        elif actualTemperature < targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
+                    temperatureDifference / 50) * (humidityDifference / 50) * rand
 
     if actualStatus == status.hc:
         state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 15)
