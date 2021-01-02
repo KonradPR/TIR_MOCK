@@ -135,10 +135,10 @@ def updateWeather():
 
 cron = BackgroundScheduler(daemon=True)
 # for development purposes times are very short
-cron.add_job(job_function, 'interval', minutes=0.01)
-cron.add_job(changeTemperature, 'interval', minutes=0.03)
-cron.add_job(changeHumidity, 'interval', minutes=0.08)
-cron.add_job(updateWeather, 'interval', minutes=0.05)
+cron.add_job(job_function, 'interval', seconds=6)
+cron.add_job(changeTemperature, 'interval', seconds=18)
+cron.add_job(changeHumidity, 'interval', seconds=48)
+cron.add_job(updateWeather, 'interval', minutes=1)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
