@@ -1,11 +1,13 @@
 import atexit
 import random
+import datetime
 
 import flask
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import abort, request, jsonify
 from pyowm import OWM
 from enum import Enum
+import csv
 
 
 class status(Enum):
@@ -34,8 +36,17 @@ def getWeatherOutside():
     humidity = w.humidity
     return temperature, humidity
 
+def getHistoricalWeather():
+    owm = OWM(ApiKey)
+    historian = owm.weather_manager().station_hour_history(station_id)
+    return historian.temperature_series(unit='celsius'),historian.humidity_series()
+
+def updateWeatherForSimulation(temps,hums,datetime):
+    return null
+    
 
 city = 'Krakow,PL'
+station_id = 39276
 ApiKey = '4526d487f12ef78b82b7a7d113faea64'
 startTemperature = random.randrange(17, 25)
 startHumidity = random.randrange(20, 80)
@@ -135,10 +146,10 @@ def updateWeather():
 
 cron = BackgroundScheduler(daemon=True)
 # for development purposes times are very short
-cron.add_job(job_function, 'interval', seconds=6)
-cron.add_job(changeTemperature, 'interval', seconds=18)
-cron.add_job(changeHumidity, 'interval', seconds=48)
-cron.add_job(updateWeather, 'interval', minutes=1)
+cron.add_job(job_function, 'interval', seconds=100)
+cron.add_job(changeTemperature, 'interval', seconds=300)
+cron.add_job(changeHumidity, 'interval', seconds=100)
+cron.add_job(updateWeather, 'interval', minutes=10)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
@@ -223,14 +234,63 @@ def get_ambient_temp(id):
 def get_humidity(id):
     return jsonify({'humidity': state['humidity']})
 
+user_preferences = {
+    1:{
+        6:20,
+        9:17,
+        16:22
+    },
+    2:{
+        6:20,
+        9:17,
+        16:22
+    },
+    3:{
+        6:20,
+        9:17,
+        16:22
+    },
+    4:{
+        6:20,
+        9:17,
+        16:22
+    },
+    5:{
+        6:20,
+        9:17,
+        16:22
+    },
+    6:{
+        8:22
+    },
+    7:{
+        8:22
+    }
+}
 
-@app.route('/devices/thermostats/<int:id>/time_to_target', methods=['GET'])
-def get_time(id):
-    return jsonify({'time_to_target': get_time_to_target()})
+def simluate(number_of_days,starting_date,user_preferences):
+    with open('csv_file.csv', "w", newline='') as csv_file:
+        writer = csv.writer(csv_file, delimiter=',')
+        end_date = starting_date + datetime.timedelta(days=number_of_days)
+        temps,hums = getHistoricalWeather()
+        while(starting_date<=end_date):
+            if(starting_date.hour() in user_preferences[starting_date.date().weekday()]):
+                state['target_temp'] =  user_preferences[starting_date.date().weekday()][starting_date.hour()]
+            for x in range(6):
+                job_function()
+                job_function()
+                job_function()
+                changeTemperature()
+                changeHumidity()
+               
+                writer.writerow([starting_date,state['target_temp'],state['target_temp_low'],state['target_temp_high'],state['humidity'],state['ambient_temp'],state['hvac_mode']])
+
+            updateWeatherForSimulation(temps,hums,starting_date)
+            starting_date+=datetime.timedelta(hours=1)
+
+        
 
 
-def get_time_to_target():
-    return 20
 
 
-app.run(use_reloader=False)
+#app.run(use_reloader=False)
