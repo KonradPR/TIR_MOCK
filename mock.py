@@ -1,6 +1,6 @@
 import atexit
 import random
-import datetime
+from datetime import datetime,timedelta
 
 import flask
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -235,6 +235,11 @@ def get_humidity(id):
     return jsonify({'humidity': state['humidity']})
 
 user_preferences = {
+    0:{
+        6:20,
+        9:17,
+        16:22
+    },
     1:{
         6:20,
         9:17,
@@ -256,14 +261,9 @@ user_preferences = {
         16:22
     },
     5:{
-        6:20,
-        9:17,
-        16:22
-    },
-    6:{
         8:22
     },
-    7:{
+    6:{
         8:22
     }
 }
@@ -271,26 +271,29 @@ user_preferences = {
 def simluate(number_of_days,starting_date,user_preferences):
     with open('csv_file.csv', "w", newline='') as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
-        end_date = starting_date + datetime.timedelta(days=number_of_days)
-        temps,hums = getHistoricalWeather()
+        end_date = starting_date + timedelta(days=number_of_days)
+        #temps,hums = getHistoricalWeather()
         while(starting_date<=end_date):
-            if(starting_date.hour() in user_preferences[starting_date.date().weekday()]):
-                state['target_temp'] =  user_preferences[starting_date.date().weekday()][starting_date.hour()]
+            print(starting_date.hour)
+            if(starting_date.hour in user_preferences[starting_date.date().weekday()]):
+                print("WOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
+                state['target_temp'] =  user_preferences[starting_date.date().weekday()][starting_date.hour]
             for x in range(6):
                 job_function()
                 job_function()
                 job_function()
                 changeTemperature()
                 changeHumidity()
-               
+                starting_date+=timedelta(minutes=10)
                 writer.writerow([starting_date,state['target_temp'],state['target_temp_low'],state['target_temp_high'],state['humidity'],state['ambient_temp'],state['hvac_mode']])
 
-            updateWeatherForSimulation(temps,hums,starting_date)
-            starting_date+=datetime.timedelta(hours=1)
+           # updateWeatherForSimulation(temps,hums,starting_date)
+            
 
         
+date_str2 = '1/3/21'
 
-
+simluate(1,datetime.strptime(date_str2, '%m/%d/%y'),user_preferences)
 
 
 #app.run(use_reloader=False)
