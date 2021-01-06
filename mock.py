@@ -38,11 +38,20 @@ def getWeatherOutside():
 
 def getHistoricalWeather():
     owm = OWM(ApiKey)
-    historian = owm.weather_manager().station_hour_history(station_id)
-    return historian.temperature_series(unit='celsius'),historian.humidity_series()
+    return owm.weather_manager().forecast_at_place('Krakow,PL', '3h')
+   
 
-def updateWeatherForSimulation(temps,hums,datetime):
-    return null
+def updateWeatherForSimulation(forecast,timepoint,start_ref):
+    global weather
+    start = datetime.strptime(forecast.when_starts('iso')[0:19],"%Y-%m-%d %H:%M:%S")                          
+    end = datetime.strptime(forecast.when_ends('iso')[0:19],"%Y-%m-%d %H:%M:%S")      
+    delta = timepoint-start_ref
+    day = delta.days%5
+    if((start+timedelta(days=day)+timedelta(hours=2))>end):
+        weatherO = forecast.get_weather_at(start+timedelta(days=day)-timedelta(hours=2))
+        weather = weatherO.temperature(unit='celsius')['temp'],weatherO.humidity
+    weatherO = forecast.get_weather_at(start+timedelta(days=day)+timedelta(hours=2))
+    weather = weatherO.temperature(unit='celsius')['temp'],weatherO.humidity
     
 
 city = 'Krakow,PL'
@@ -236,48 +245,59 @@ def get_humidity(id):
 
 user_preferences = {
     0:{
-        6:20,
-        9:17,
-        16:22
+        6:['target_temp',20],
+        9:['target_temp',17],
+        16:['target_temp',22],
+        22:['target_temp',18]
     },
     1:{
-        6:20,
-        9:17,
-        16:22
+        6:['target_temp',20],
+        9:['target_temp',17],
+        16:['target_temp',22],
+        22:['target_temp',18]
     },
     2:{
-        6:20,
-        9:17,
-        16:22
+        6:['target_temp',20],
+        9:['target_temp',17],
+        16:['target_temp',22],
+        22:['target_temp',18]
     },
     3:{
-        6:20,
-        9:17,
-        16:22
+        6:['target_temp',20],
+        9:['target_temp',17],
+        16:['target_temp',22],
+        22:['target_temp',18]
     },
     4:{
-        6:20,
-        9:17,
-        16:22
+        6:['target_temp',20],
+        9:['target_temp',17],
+        16:['target_temp',22],
+        22:['target_temp',18]
     },
     5:{
-        8:22
+        5:['target_temp',20],
+        8:['target_temp',22],
+        22:['target_temp',18]
     },
     6:{
-        8:22
+        6:['target_temp',20],
+        8:['target_temp',22],
+        22:['target_temp',18]
     }
 }
+
+def simulate_preferences(user_preferences,date_ref):
+    if(date_ref.hour in user_preferences[date_ref.date().weekday()]):
+        state[user_preferences[date_ref.date().weekday()][date_ref.hour][0]] =  user_preferences[date_ref.date().weekday()][date_ref.hour][1]
 
 def simluate(number_of_days,starting_date,user_preferences):
     with open('csv_file.csv', "w", newline='') as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
         end_date = starting_date + timedelta(days=number_of_days)
-        #temps,hums = getHistoricalWeather()
+        forecast = getHistoricalWeather()
+        start_ref = starting_date
         while(starting_date<=end_date):
-            print(starting_date.hour)
-            if(starting_date.hour in user_preferences[starting_date.date().weekday()]):
-                print("WOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
-                state['target_temp'] =  user_preferences[starting_date.date().weekday()][starting_date.hour]
+            simulate_preferences(user_preferences,starting_date)
             for x in range(6):
                 job_function()
                 job_function()
@@ -287,7 +307,7 @@ def simluate(number_of_days,starting_date,user_preferences):
                 starting_date+=timedelta(minutes=10)
                 writer.writerow([starting_date,state['target_temp'],state['target_temp_low'],state['target_temp_high'],state['humidity'],state['ambient_temp'],state['hvac_mode']])
 
-           # updateWeatherForSimulation(temps,hums,starting_date)
+            updateWeatherForSimulation(forecast,starting_date,start_ref)
             
 
         
