@@ -1,0 +1,8 @@
+APScheduler==3.6.3
+Flask==1.1.2
+itsdangerous==1.1.0
+MarkupSafe==1.1.1
+pyowm==3.1.1
+Werkzeug==1.0.1
+click==7.1.2
+Jinja2==2.11.2
