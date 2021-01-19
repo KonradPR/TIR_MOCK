@@ -1,13 +1,35 @@
 import atexit
-import random
-from datetime import datetime, timedelta
-
-import flask
-from apscheduler.schedulers.background import BackgroundScheduler
-from flask import abort, request, jsonify
-from pyowm import OWM
-from enum import Enum
 import csv
+import os
+import random
+import sys
+from datetime import datetime, timedelta
+from enum import Enum
+from json import dumps
+
+import AWSIoTPythonSDK
+from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
+from apscheduler.schedulers.background import BackgroundScheduler
+from pyowm import OWM
+
+sys.path.insert(0, os.path.dirname(AWSIoTPythonSDK.__file__))
+
+ENDPOINT = "a24ojhzjcj6a8j-ats.iot.us-east-1.amazonaws.com"
+PATH_TO_CERT = "certificates/2/382b25f402-certificate.pem.crt"
+PATH_TO_KEY = "certificates/2/382b25f402-private.pem.key"
+PATH_TO_ROOT = "certificates/root1.pem"
+
+ID = 0
+CLIENT = AWSIoTMQTTClient(str(ID))
+QOS = 0
+connected = False
+
+
+def configure_mqtt():
+    CLIENT.configureEndpoint(ENDPOINT, 8883)
+    CLIENT.configureCredentials(PATH_TO_ROOT, PATH_TO_KEY, PATH_TO_CERT)
+    CLIENT.connect()
+    on_connect()
 
 
 class status(Enum):
@@ -42,6 +64,11 @@ def getHistoricalWeather():
     return owm.weather_manager().forecast_at_place('Krakow,PL', '3h')
 
 
+def createMessage(a: str, b: str):
+    return dumps(
+        {'id': ID, a: state[b], 'timestamp': str(datetime.now())})
+
+
 def updateWeatherForSimulation(forecast, timepoint, start_ref):
     global weather
     start = datetime.strptime(forecast.when_starts('iso')[0:19], "%Y-%m-%d %H:%M:%S")
@@ -63,251 +90,208 @@ startHumidity = random.randrange(20, 80)
 startStatus = random.randint(0, 3)
 weather = getWeatherOutside()
 
-states = {}
-
-
-def initial_state():
-    startTemperature = random.randrange(17, 25)
-    startHumidity = random.randrange(20, 80)
-    startStatus = random.randint(0, 3)
-    return {'hvac_mode': getStatus(startStatus),
-            'target_temp': 21,
-            'target_temp_low': 18,
-            'target_temp_high': 22,
-            'ambient_temp': startTemperature,
-            'humidity': startHumidity}
+state = {
+    'hvac_mode': getStatus(startStatus),
+    'target_temp': 21,
+    'target_temp_low': 18,
+    'targetz_temp_high': 22,
+    'ambient_temp': startTemperature,
+    'humidity': startHumidity}
 
 
 def job_function():
-    # function will update temperature inside
-    for x in states.keys():
-        weatherOutside = weather
-        actualTemperature = states[x]['ambient_temp']
-        actualHumidity = states[x]['humidity']
-        targetTemperature = states[x]['target_temp']
-        actualStatus = states[x]['hvac_mode']
-        temperatureDifference = abs(weatherOutside[0] - actualTemperature)
-        humidityDifference = abs(weatherOutside[1] - actualHumidity)
-        rand = random.uniform(0, 2.5)
-        if actualStatus == status.heat:
-            if abs(actualTemperature - targetTemperature) < 0.5:
-                if actualTemperature - targetTemperature < 0:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 + 0.1) * (
-                                                        temperatureDifference / 50) * (humidityDifference / 30) * rand
-                else:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 - 0.1) * (
-                                                        temperatureDifference / 50) * (humidityDifference / 30) * rand
-            elif actualTemperature > targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
-                        temperatureDifference / 50) * (humidityDifference / 30) * rand
-            elif actualTemperature < targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
-                        temperatureDifference / 50) * (humidityDifference / 30) * rand
+    weatherOutside = weather
+    actualTemperature = state['ambient_temp']
+    actualHumidity = state['humidity']
+    targetTemperature = state['target_temp']
+    actualStatus = state['hvac_mode']
+    temperatureDifference = abs(weatherOutside[0] - actualTemperature)
+    humidityDifference = abs(weatherOutside[1] - actualHumidity)
+    rand = random.uniform(0, 2.5)
+    if actualStatus == status.heat:
+        if abs(actualTemperature - targetTemperature) < 0.5:
+            if actualTemperature - targetTemperature < 0:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 + 0.1) * (
+                                                temperatureDifference / 50) * (humidityDifference / 30) * rand
+            else:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 - 0.1) * (
+                                                temperatureDifference / 50) * (humidityDifference / 30) * rand
+        elif actualTemperature > targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
+                    temperatureDifference / 50) * (humidityDifference / 30) * rand
+        elif actualTemperature < targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
+                    temperatureDifference / 50) * (humidityDifference / 30) * rand
 
-        if actualStatus == status.cool:
-            if abs(actualTemperature - targetTemperature) < 0.5:
-                if actualTemperature - targetTemperature < 0:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 + 0.06) * (
-                                                        temperatureDifference / 50) * (humidityDifference / 30) * rand
-                else:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 - 0.2) * (
-                                                        temperatureDifference / 50) * (humidityDifference / 30) * rand
-            elif actualTemperature > targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
-                        temperatureDifference / 50) * (humidityDifference / 40) * rand
-            elif actualTemperature < targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
-                        temperatureDifference / 50) * (humidityDifference / 50) * rand
+    if actualStatus == status.cool:
+        if abs(actualTemperature - targetTemperature) < 0.5:
+            if actualTemperature - targetTemperature < 0:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 + 0.06) * (
+                                                temperatureDifference / 50) * (humidityDifference / 30) * rand
+            else:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 - 0.2) * (
+                                                temperatureDifference / 50) * (humidityDifference / 30) * rand
+        elif actualTemperature > targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 7) * (
+                    temperatureDifference / 50) * (humidityDifference / 40) * rand
+        elif actualTemperature < targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 30) * (
+                    temperatureDifference / 50) * (humidityDifference / 50) * rand
 
-        if actualStatus == status.hc:
-            if abs(actualTemperature - targetTemperature) < 0.7:
-                if actualTemperature - targetTemperature < 0:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 + 0.2) * (
-                                                        temperatureDifference / 60) * (humidityDifference / 40) * rand
-                else:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 - 0.2) * (
-                                                        temperatureDifference / 60) * (humidityDifference / 40) * rand
-            elif actualTemperature > targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 13) * (
-                        temperatureDifference / 60) * (humidityDifference / 40) * rand
-            elif actualTemperature < targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 13) * (
-                        temperatureDifference / 60) * (humidityDifference / 40) * rand
+    if actualStatus == status.hc:
+        if abs(actualTemperature - targetTemperature) < 0.7:
+            if actualTemperature - targetTemperature < 0:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 + 0.2) * (
+                                                temperatureDifference / 60) * (humidityDifference / 40) * rand
+            else:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 - 0.2) * (
+                                                temperatureDifference / 60) * (humidityDifference / 40) * rand
+        elif actualTemperature > targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 13) * (
+                    temperatureDifference / 60) * (humidityDifference / 40) * rand
+        elif actualTemperature < targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 13) * (
+                    temperatureDifference / 60) * (humidityDifference / 40) * rand
 
-        if actualStatus == status.eco:
-            if abs(actualTemperature - targetTemperature) < 0.4:
-                if actualTemperature - targetTemperature < 0:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 + 0.15) * (
-                                                        temperatureDifference / 45) * (humidityDifference / 45) * (
-                                                        rand * 1.5)
-                else:
-                    states[x]['ambient_temp'] = actualTemperature + (
-                            (targetTemperature - actualTemperature) / 2 - 0.15) * (
-                                                        temperatureDifference / 45) * (humidityDifference / 45) * (
-                                                        rand * 1.5)
-            elif actualTemperature > targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 16) * (
-                        temperatureDifference / 45) * (humidityDifference / 45) * (rand * 1.5)
-            elif actualTemperature < targetTemperature:
-                states[x]['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 17) * (
-                        temperatureDifference / 45) * (humidityDifference / 45) * (rand * 1.5)
+    if actualStatus == status.eco:
+        if abs(actualTemperature - targetTemperature) < 0.4:
+            if actualTemperature - targetTemperature < 0:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 + 0.15) * (
+                                                temperatureDifference / 45) * (humidityDifference / 45) * (
+                                                rand * 1.5)
+            else:
+                state['ambient_temp'] = actualTemperature + (
+                        (targetTemperature - actualTemperature) / 2 - 0.15) * (
+                                                temperatureDifference / 45) * (humidityDifference / 45) * (
+                                                rand * 1.5)
+        elif actualTemperature > targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 16) * (
+                    temperatureDifference / 45) * (humidityDifference / 45) * (rand * 1.5)
+        elif actualTemperature < targetTemperature:
+            state['ambient_temp'] = actualTemperature + ((targetTemperature - actualTemperature) / 17) * (
+                    temperatureDifference / 45) * (humidityDifference / 45) * (rand * 1.5)
 
 
 def changeTemperature():
     # function will change temperature inside basing on the temperature outside
-    for x in states.keys():
-        actualTemperature = states[x]['ambient_temp']
-        states[x]['ambient_temp'] = actualTemperature - ((actualTemperature - weather[0]) / 200)
+    actualTemperature = state['ambient_temp']
+    state['ambient_temp'] = actualTemperature - ((actualTemperature - weather[0]) / 200)
 
 
 def changeHumidity():
-    for x in states.keys():
-        actualHumidity = states[x]['humidity']
-        outsideHumidity = weather[1]
-        states[x]['humidity'] = (actualHumidity + (((outsideHumidity - actualHumidity) / 25) * random.uniform(-1, 1)))
+    actualHumidity = state['humidity']
+    outsideHumidity = weather[1]
+    state['humidity'] = (actualHumidity + (((outsideHumidity - actualHumidity) / 25) * random.uniform(-1, 1)))
 
 
 def updateWeather():
     global weather
     weather = getWeatherOutside()
-    print(weather)
+    print(f"Temperature outside: {weather}")
+
+
+def sendTemperatureToController():
+    message = createMessage('ambient_temperature_c', 'ambient_temp')
+    print(message)
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_ambient_temperature_return', message, 0)
 
 
 cron = BackgroundScheduler(daemon=True)
 # for development purposes times are very short
 cron.add_job(job_function, 'interval', seconds=100)
-cron.add_job(changeTemperature, 'interval', seconds=300)
+cron.add_job(changeTemperature, 'interval', seconds=400)
 cron.add_job(changeHumidity, 'interval', seconds=100)
 cron.add_job(updateWeather, 'interval', minutes=10)
+cron.add_job(sendTemperatureToController, 'interval', minutes=0.1)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
 atexit.register(lambda: cron.shutdown(wait=False))
 
-app = flask.Flask(__name__)
-app.config["DEBUG"] = True
 
-states['default'] = initial_state()
-
-
-@app.route('/', methods=['GET'])
-def welcome():
-    return 'Hello\n'
+def get_target_temp(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_target_temperature_return',
+                   createMessage('target_temperature_c', 'target_temp'), QOS)
 
 
-@app.route('/devices/thermostats/<int:id>/register', methods=['PUT'])
-def register(id):
-    if (id not in states):
-        states[id] = initial_state()
-        return jsonify({'id': id})
-    return jsonify({'id': id})
+def put_target_temp(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    state['target_temp'] = message.payload.decode('utf8')
 
 
-@app.route('/devices/thermostats/<int:id>/target_temperature_c', methods=['GET'])
-def get_target_temp(id):
-    if (id in states):
-        return jsonify({'target_temperature_c': states[id]['target_temp']})
-    return jsonify({'target_temperature_c': states['default']['target_temp']})
+def get_target_temp_low(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_target_temperature_low_return',
+                   createMessage('target_temperature_low_c', 'target_temp_low'), QOS)
 
 
-@app.route('/devices/thermostats/<int:id>/target_temperature_c', methods=['PUT'])
-def put_target_temp(id):
-    if (id in states):
-        if not request.json:
-            abort(400)
-        if not 'target_temperature_c' in request.json:
-            abort(400)
-        states[id]['target_temp'] = request.json.get('target_temperature_c')
-        return jsonify({'target_temperature_c': states[id]['target_temp']})
-    return jsonify({'target_temperature_c': states['default']['target_temp']})
+def put_target_temp_low(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    state['target_temp_low'] = message.payload.decode('utf8')
 
 
-@app.route('/devices/thermostats/<int:id>/target_temperature_low_c', methods=['GET'])
-def get_target_temp_low(id):
-    if (id in states):
-        return jsonify({'target_temperature_low_c': states[id]['target_temp_low']})
-    return jsonify({'target_temperature_low_c': states['default']['target_temp_low']})
+def get_target_temp_high(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_target_temperature_high_return',
+                   createMessage(
+                       'target_temperature_high_c', 'target_temp_high'),
+                   QOS)
 
 
-@app.route('/devices/thermostats/<int:id>/target_temperature_low_c', methods=['PUT'])
-def put_target_temp_low(id):
-    if (id in states):
-        if not request.json:
-            abort(400)
-        if not 'target_temperature_low_c' in request.json:
-            abort(400)
-        states[id]['target_temp_low'] = request.json.get('target_temperature_low_c')
-        return jsonify({'target_temperature_low_c': states[id]['target_temp_low']})
-    states['default']['target_temp_low'] = request.json.get('target_temperature_low_c')
-    return jsonify({'target_temperature_low_c': states['default']['target_temp_low']})
+def put_target_temp_high(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    state['target_temp_high'] = message.payload.decode('utf8')
 
 
-@app.route('/devices/thermostats/<int:id>/target_temperature_high_c', methods=['GET'])
-def get_target_temp_high(id):
-    if (id in states):
-        return jsonify({'target_temperature_high_c': states[id]['target_temp_high']})
-    return jsonify({'target_temperature_high_c': states['default']['target_temp_high']})
+def get_hvac(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_hvac_mode_return', createMessage('hvac_mode', 'hvac_mode'), QOS)
 
 
-@app.route('/devices/thermostats/<int:id>/target_temperature_high_c', methods=['PUT'])
-def put_target_temp_high(id):
-    if (id in states):
-        if not request.json:
-            abort(400)
-        if not 'target_temperature_high_c' in request.json:
-            abort(400)
-        states[id]['target_temp_high'] = request.json.get('target_temperature_high_c')
-        return jsonify({'target_temperature_high_c': states[id]['target_temp_high']})
-    states['default']['target_temp_high'] = request.json.get('target_temperature_high_c')
-    return jsonify({'target_temperature_high_c': states['default']['target_temp_high']})
+def put_hvac(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    state['hvac_mode'] = message.payload.decode('utf8')
 
 
-@app.route('/devices/thermostats/<int:id>/hvac_mode', methods=['GET'])
-def get_hvac(id):
-    if (id in states):
-        return jsonify({'hvac_mode': states[id]['hvac_mode'].name})
-    return jsonify({'hvac_mode': states['default']['hvac_mode'].name})
+def get_ambient_temp(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_ambient_temperature_return',
+                   createMessage('ambient_temperature_c', 'ambient_temp'), QOS)
 
 
-@app.route('/devices/thermostats/<int:id>/hvac_mode', methods=['PUT'])
-def put_hvac(id):
-    if (id in states):
-        if not request.json:
-            abort(400)
-        if not 'hvac_mode' in request.json:
-            abort(400)
-        states[id]['hvac_mode'] = request.json.get('hvac_mode')
-        return jsonify({'hvac_mode': states[id]['hvac_mode'].name})
-    states['default']['hvac_mode'] = request.json.get('hvac_mode')
-    return jsonify({'hvac_mode': states['default']['hvac_mode'].name})
+def get_humidity(client, userdata, message):
+    print(f"Received from topic: {message.topic} : {message.payload}")
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_humidity_return', createMessage('humidity', 'humidity'), QOS)
 
 
-@app.route('/devices/thermostats/<int:id>/ambient_temperature_c', methods=['GET'])
-def get_ambient_temp(id):
-    if (id in states):
-        return jsonify({'ambient_temperature_c': states[id]['ambient_temp']})
-    return jsonify({'ambient_temperature_c': states['default']['ambient_temp']})
+def on_connect():
+    # CLIENT.subscribe('/', 1, welcome)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/get_target_temperature', QOS, get_target_temp)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/get_target_temperature_low', QOS, get_target_temp_low)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/get_target_temperature_high', QOS, get_target_temp_high)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/get_hvac_mode', QOS, get_hvac)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/get_ambient_temperature', QOS, get_ambient_temp)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/get_humidity', QOS, get_humidity)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/put_target_temperature', QOS, put_target_temp)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/put_target_temperature_low', QOS, put_target_temp_low)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/put_target_temperature_high', QOS, put_target_temp_high)
+    CLIENT.subscribe(f'/devices/thermostats/{ID}/put_hvac_mode', QOS, put_hvac)
+    print("connect")
+    CLIENT.publish('/devices/info', f"Thermostat {ID} connected", QOS)
+    global connected
+    connected = True
 
 
-@app.route('/devices/thermostats/<int:id>/humidity', methods=['GET'])
-def get_humidity(id):
-    if (id in states):
-        return jsonify({'humidity': states[id]['humidity']})
-    return jsonify({'humidity': states['default']['humidity']})
-
-
-@app.route('/devices/thermostats/simulate', methods=['GET'])
-def simulation():
-    response = jsonify(simluate_for_api(1, datetime.strptime(date_str2, '%m/%d/%y'), user_preferences))
-    response.status_code = 200
-    return response
+def on_message(client, userdata, message):
+    print(message.payload.decode('utf8'))
 
 
 user_preferences = {
@@ -355,10 +339,9 @@ user_preferences = {
 
 
 def simulate_preferences(user_preferences, date_ref):
-    if (date_ref.hour in user_preferences[date_ref.date().weekday()]):
-        for x in states.keys():
-            states[x][user_preferences[date_ref.date().weekday()][date_ref.hour][0]] = \
-                user_preferences[date_ref.date().weekday()][date_ref.hour][1]
+    if date_ref.hour in user_preferences[date_ref.date().weekday()]:
+        state[user_preferences[date_ref.date().weekday()][date_ref.hour][0]] = \
+            user_preferences[date_ref.date().weekday()][date_ref.hour][1]
 
 
 def simluate_for_api(number_of_days, starting_date, user_preferences):
@@ -366,7 +349,7 @@ def simluate_for_api(number_of_days, starting_date, user_preferences):
     end_date = starting_date + timedelta(days=number_of_days)
     forecast = getHistoricalWeather()
     start_ref = starting_date
-    while (starting_date <= end_date):
+    while starting_date <= end_date:
         simulate_preferences(user_preferences, starting_date)
         for x in range(6):
             job_function()
@@ -375,16 +358,15 @@ def simluate_for_api(number_of_days, starting_date, user_preferences):
             changeTemperature()
             changeHumidity()
             starting_date += timedelta(minutes=10)
-            for x in states.keys():
-                result.append({
-                    'id': x,
-                    'time': starting_date,
-                    'target_temp': states[x]['target_temp'],
-                    'target_temp_low': states[x]['target_temp_low'],
-                    'target_temp_high': states[x]['target_temp_high'],
-                    'humidity': states[x]['humidity'],
-                    'ambient_temp': states[x]['ambient_temp'],
-                    'hvac_mode': states[x]['hvac_mode'].name})
+            result.append({
+                'id': x,
+                'time': starting_date,
+                'target_temp': state['target_temp'],
+                'target_temp_low': state['target_temp_low'],
+                'target_temp_high': state['target_temp_high'],
+                'humidity': state['humidity'],
+                'ambient_temp': state['ambient_temp'],
+                'hvac_mode': state['hvac_mode'].name})
 
         updateWeatherForSimulation(forecast, starting_date, start_ref)
     return result
@@ -405,16 +387,15 @@ def simluate(number_of_days, starting_date, user_preferences):
                 changeTemperature()
                 changeHumidity()
                 starting_date += timedelta(minutes=10)
-                writer.writerow([starting_date, states['default']['target_temp'], states['default']['target_temp_low'],
-                                 states['default']['target_temp_high'], states['default']['humidity'],
-                                 states['default']['ambient_temp'], states['default']['hvac_mode']])
+                writer.writerow([starting_date, state['target_temp'], state['target_temp_low'],
+                                 state['target_temp_high'], state['humidity'],
+                                 state['ambient_temp'], state['hvac_mode']])
 
             updateWeatherForSimulation(forecast, starting_date, start_ref)
 
 
-date_str2 = '1/3/21'
-
-# simluate(1,datetime.strptime(date_str2, '%m/%d/%y'),user_preferences)
-
 if __name__ == '__main__':
-    app.run(use_reloader=False)
+    configure_mqtt()
+
+    while True:
+        pass
