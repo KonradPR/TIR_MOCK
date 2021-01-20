@@ -14,15 +14,15 @@ from pyowm import OWM
 
 sys.path.insert(0, os.path.dirname(AWSIoTPythonSDK.__file__))
 
-ENDPOINT = "a24ojhzjcj6a8j-ats.iot.us-east-1.amazonaws.com"
-PATH_TO_CERT = "certificates/2/382b25f402-certificate.pem.crt"
-PATH_TO_KEY = "certificates/2/382b25f402-private.pem.key"
-PATH_TO_ROOT = "certificates/root1.pem"
-
-ID = 0
+ID = 12
 CLIENT = AWSIoTMQTTClient(str(ID))
 QOS = 0
 connected = False
+
+ENDPOINT = "a24ojhzjcj6a8j-ats.iot.us-east-1.amazonaws.com"
+PATH_TO_CERT = f"../certificates/certificate{ID}/mock_{ID}-certificate.pem.crt"
+PATH_TO_KEY = f"../certificates/certificate{ID}/mock_{ID}-private.pem.key"
+PATH_TO_ROOT = "../certificates/root.pem"
 
 
 def configure_mqtt():
@@ -180,7 +180,6 @@ def job_function():
 
 
 def changeTemperature():
-    # function will change temperature inside basing on the temperature outside
     actualTemperature = state['ambient_temp']
     state['ambient_temp'] = actualTemperature - ((actualTemperature - weather[0]) / 200)
 
@@ -198,18 +197,23 @@ def updateWeather():
 
 
 def sendTemperatureToController():
-    message = createMessage('ambient_temperature_c', 'ambient_temp')
+    message = dumps(
+        {'id': ID,
+         'ambient_temperature_c': str(round(state['ambient_temp'], 3)),
+         'target_temp': str(state['target_temp']),
+         'humidity': str(round(state['humidity'], 3)),
+         'hvac_mode': str(state['hvac_mode']),
+         'timestamp': str(datetime.now())})
     print(message)
     CLIENT.publish(f'/devices/thermostats/{ID}/get_ambient_temperature_return', message, 0)
 
 
 cron = BackgroundScheduler(daemon=True)
-# for development purposes times are very short
 cron.add_job(job_function, 'interval', seconds=100)
 cron.add_job(changeTemperature, 'interval', seconds=400)
 cron.add_job(changeHumidity, 'interval', seconds=100)
 cron.add_job(updateWeather, 'interval', minutes=10)
-cron.add_job(sendTemperatureToController, 'interval', minutes=0.1)
+# cron.add_job(sendTemperatureToController, 'interval', minutes=0.1)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped

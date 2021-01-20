@@ -13,29 +13,23 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from pyowm import OWM
 
 sys.path.insert(0, os.path.dirname(AWSIoTPythonSDK.__file__))
-# Now the import statement should work
 
-
-# dir_path = os.path.dirname(os.path.realpath(__file__))
-ENDPOINT = "a24ojhzjcj6a8j-ats.iot.us-east-1.amazonaws.com"
-# CLIENT_ID = "testDevice"
-PATH_TO_CERT = "certificates/9edb23887d-certificate.pem.crt"
-PATH_TO_KEY = "certificates/9edb23887d-private.pem.key"
-PATH_TO_ROOT = "certificates/root.pem"
-
-ID = 1
+ID = 0
 CLIENT = AWSIoTMQTTClient(str(ID))
 QOS = 0
 connected = False
+
+ENDPOINT = "a24ojhzjcj6a8j-ats.iot.us-east-1.amazonaws.com"
+PATH_TO_CERT = f"../certificates/certificate{ID}/mock_{ID}-certificate.pem.crt"
+PATH_TO_KEY = f"../certificates/certificate{ID}/mock_{ID}-private.pem.key"
+PATH_TO_ROOT = "../certificates/root.pem"
 
 
 def configure_mqtt():
     CLIENT.configureEndpoint(ENDPOINT, 8883)
     CLIENT.configureCredentials(PATH_TO_ROOT, PATH_TO_KEY, PATH_TO_CERT)
-    # CLIENT.configureIAMCredentials(PATH_TO_ROOT, PATH_TO_KEY, PATH_TO_CERT)
     CLIENT.connect()
     on_connect()
-    # on_message()
 
 
 class status(Enum):
@@ -70,6 +64,11 @@ def getHistoricalWeather():
     return owm.weather_manager().forecast_at_place('Krakow,PL', '3h')
 
 
+def createMessage(a: str, b: str):
+    return dumps(
+        {'id': ID, a: state[b], 'timestamp': str(datetime.now())})
+
+
 def updateWeatherForSimulation(forecast, timepoint, start_ref):
     global weather
     start = datetime.strptime(forecast.when_starts('iso')[0:19], "%Y-%m-%d %H:%M:%S")
@@ -98,8 +97,6 @@ state = {
     'targetz_temp_high': 22,
     'ambient_temp': startTemperature,
     'humidity': startHumidity}
-
-
 
 
 def job_function():
@@ -183,7 +180,6 @@ def job_function():
 
 
 def changeTemperature():
-    # function will change temperature inside basing on the temperature outside
     actualTemperature = state['ambient_temp']
     state['ambient_temp'] = actualTemperature - ((actualTemperature - weather[0]) / 200)
 
@@ -201,18 +197,23 @@ def updateWeather():
 
 
 def sendTemperatureToController():
-    print(state['ambient_temp'])
-    # CLIENT.publish(f'/devices/thermostats/{ID}/get_ambient_temperature_return',
-    #                dumps({'ambient_temperature_c': state['ambient_temp']}), 0)
+    message = dumps(
+        {'id': ID,
+         'ambient_temperature_c': str(round(state['ambient_temp'], 3)),
+         'target_temp': str(state['target_temp']),
+         'humidity': str(round(state['humidity'], 3)),
+         'hvac_mode': str(state['hvac_mode']),
+         'timestamp': str(datetime.now())})
+    print(message)
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_ambient_temperature_return', message, 0)
 
 
 cron = BackgroundScheduler(daemon=True)
-# for development purposes times are very short
 cron.add_job(job_function, 'interval', seconds=100)
 cron.add_job(changeTemperature, 'interval', seconds=400)
 cron.add_job(changeHumidity, 'interval', seconds=100)
 cron.add_job(updateWeather, 'interval', minutes=10)
-cron.add_job(sendTemperatureToController, 'interval', minutes=1)
+# cron.add_job(sendTemperatureToController, 'interval', minutes=0.1)
 cron.start()
 
 # Shutdown your cron thread if the web process is stopped
@@ -222,7 +223,7 @@ atexit.register(lambda: cron.shutdown(wait=False))
 def get_target_temp(client, userdata, message):
     print(f"Received from topic: {message.topic} : {message.payload}")
     CLIENT.publish(f'/devices/thermostats/{ID}/get_target_temperature_return',
-                   dumps({'target_temperature_c': state['target_temp']}), QOS)
+                   createMessage('target_temperature_c', 'target_temp'), QOS)
 
 
 def put_target_temp(client, userdata, message):
@@ -233,7 +234,7 @@ def put_target_temp(client, userdata, message):
 def get_target_temp_low(client, userdata, message):
     print(f"Received from topic: {message.topic} : {message.payload}")
     CLIENT.publish(f'/devices/thermostats/{ID}/get_target_temperature_low_return',
-                   dumps({'target_temperature_low_c': state['target_temp_low']}), QOS)
+                   createMessage('target_temperature_low_c', 'target_temp_low'), QOS)
 
 
 def put_target_temp_low(client, userdata, message):
@@ -244,7 +245,9 @@ def put_target_temp_low(client, userdata, message):
 def get_target_temp_high(client, userdata, message):
     print(f"Received from topic: {message.topic} : {message.payload}")
     CLIENT.publish(f'/devices/thermostats/{ID}/get_target_temperature_high_return',
-                   dumps({'target_temperature_high_c': state['target_temp_high']}), QOS)
+                   createMessage(
+                       'target_temperature_high_c', 'target_temp_high'),
+                   QOS)
 
 
 def put_target_temp_high(client, userdata, message):
@@ -254,8 +257,7 @@ def put_target_temp_high(client, userdata, message):
 
 def get_hvac(client, userdata, message):
     print(f"Received from topic: {message.topic} : {message.payload}")
-    CLIENT.publish(f'/devices/thermostats/{ID}/get_hvac_mode_return', dumps({'hvac_mode': state['hvac_mode'].name}),
-                   QOS)
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_hvac_mode_return', createMessage('hvac_mode', 'hvac_mode'), QOS)
 
 
 def put_hvac(client, userdata, message):
@@ -266,15 +268,16 @@ def put_hvac(client, userdata, message):
 def get_ambient_temp(client, userdata, message):
     print(f"Received from topic: {message.topic} : {message.payload}")
     CLIENT.publish(f'/devices/thermostats/{ID}/get_ambient_temperature_return',
-                   dumps({'ambient_temperature_c': state['ambient_temp']}), QOS)
+                   createMessage('ambient_temperature_c', 'ambient_temp'), QOS)
 
 
 def get_humidity(client, userdata, message):
     print(f"Received from topic: {message.topic} : {message.payload}")
-    CLIENT.publish(f'/devices/thermostats/{ID}/get_humidity_return', dumps({'humidity': state['humidity']}), QOS)
+    CLIENT.publish(f'/devices/thermostats/{ID}/get_humidity_return', createMessage('humidity', 'humidity'), QOS)
 
 
 def on_connect():
+    # CLIENT.subscribe('/', 1, welcome)
     CLIENT.subscribe(f'/devices/thermostats/{ID}/get_target_temperature', QOS, get_target_temp)
     CLIENT.subscribe(f'/devices/thermostats/{ID}/get_target_temperature_low', QOS, get_target_temp_low)
     CLIENT.subscribe(f'/devices/thermostats/{ID}/get_target_temperature_high', QOS, get_target_temp_high)
@@ -395,14 +398,8 @@ def simluate(number_of_days, starting_date, user_preferences):
             updateWeatherForSimulation(forecast, starting_date, start_ref)
 
 
-date_str2 = '1/3/21'
-
-# simluate(1,datetime.strptime(date_str2, '%m/%d/%y'),user_preferences)
-
 if __name__ == '__main__':
     configure_mqtt()
-
-    # app.run(use_reloader=False,host='0.0.0.0', port=81)
 
     while True:
         pass

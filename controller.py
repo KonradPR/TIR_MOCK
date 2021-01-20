@@ -4,8 +4,8 @@ from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
 
 ENDPOINT = "a24ojhzjcj6a8j-ats.iot.us-east-1.amazonaws.com"
 # CLIENT_ID = "testDevice"
-PATH_TO_CERT = "certificates/9edb23887d-certificate.pem.crt"
-PATH_TO_KEY = "certificates/9edb23887d-private.pem.key"
+PATH_TO_CERT = "certificates/certificate14/mock_14-certificate.pem.crt"
+PATH_TO_KEY = "certificates/certificate14/mock_14-private.pem.key"
 PATH_TO_ROOT = "certificates/root.pem"
 
 ID = "controller"

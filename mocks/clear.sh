@@ -1,0 +1,1 @@
+sudo kill $(ps -aux | grep mock | awk '{print $2}')
